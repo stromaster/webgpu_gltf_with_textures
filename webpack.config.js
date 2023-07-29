@@ -11,6 +11,15 @@ module.exports = {
     module: {
         rules: [
             {
+                test: /\.(ts|tsx)?$/,
+                include: path.resolve(__dirname, 'src'),
+                use: [
+                    {
+                        loader: 'ts-loader'
+                    }
+                ]
+            },
+            {
                 test: /\.(png|jpg|jpeg|glb)$/i,
                 type: "asset/resource",
             },

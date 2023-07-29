@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "typeRoots": [ "./node_modules/@webgpu/types", "./node_modules/@types"],
+    "alwaysStrict": true,
+    "experimentalDecorators": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitAny": true,
+    "noImplicitReturns": true,
+    "noImplicitThis": true,
+    "noUnusedLocals": true,
+    "pretty": true,
+    "skipLibCheck": true,
+    "sourceMap": true,
+    "strictNullChecks": true,
+  },
+}

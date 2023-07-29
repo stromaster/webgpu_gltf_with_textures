@@ -6,7 +6,7 @@ import {Controller} from "ez_canvas_controller";
 import shaderCode from "./glb_prim.wgsl";
 import twoCylinder from "./2CylinderEngine.glb";
 
-import {uploadGLB} from "./glb";
+import {uploadGLB} from "./glb.ts";
 
 (async () => {
     if (navigator.gpu === undefined) {
