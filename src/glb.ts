@@ -209,7 +209,7 @@ export class GLTFBufferView {
 
 export class GLTFAccessor {
     count: number;
-    componentType: any;
+    componentType: GLTFComponentType;
     gltfType: GLTFType;
     view: GLTFBufferView;
     byteOffset: number;
@@ -311,7 +311,7 @@ export class GLTFPrimitive {
 
         // Our loader only supports triangle lists and strips, so by default we set
         // the primitive topology to triangle list, and check if it's instead a triangle strip
-        var primitive : GPUPrimitiveState = {} 
+        let primitive : GPUPrimitiveState = {} 
         if (this.topology == GLTFRenderMode.TRIANGLES) {
             primitive.topology = "triangle-list"
         }
@@ -474,8 +474,8 @@ export class GLTFScene {
 // about nested transforms in the renderer. The root node is included in the flattened tree
 function flattenTree(allNodes : [any], node : any, parent_transform : mat4 | null) : any[] {
 
-    var flattened = [];
-    var tfm = readNodeTransform(node);
+    let flattened = [];
+    let tfm = readNodeTransform(node);
     if (parent_transform != undefined)
         mat4.mul(tfm, parent_transform, tfm);
 
@@ -618,7 +618,7 @@ export function uploadGLB(buffer: ArrayBuffer, device: GPUDevice) {
             // Loop through all the attributes to find the POSITION attribute.
             // While we only want the position attribute right now, we'll load
             // the others later as well.
-            var positions : GLTFAccessor|null = null
+            let positions : GLTFAccessor|null = null
             for (let attr in prim["attributes"]) {
                 let accessor = accessors[prim["attributes"][attr]];
                 if (attr == "POSITION") {
