@@ -4,12 +4,15 @@ alias float2 = vec2<f32>;
 
 struct VertexInput {
     @location(0) position: float3,
+    @location(1) normal: float3,
+    @location(2) uv: float2,
 };
 
 struct VertexOutput {
     @builtin(position) position: float4,
     @location(0) world_pos: float3,
-    @location(1) uv: float2,
+    @location(1) world_norm: float3,
+    @location(2) uv: float2,
 };
 
 struct ViewParams {
@@ -33,18 +36,21 @@ var<uniform> node_params: NodeParams;
 fn vertex_main(vert: VertexInput) -> VertexOutput {
     var out: VertexOutput;
     var world_pos = node_params.transform * float4(vert.position, 1.0);
-    world_pos = float4(world_pos.xyz, 1.0);
+    var world_norm = node_params.transform * float4(vert.normal, 0.0);
+
     out.position = view_params.view_proj * world_pos;
     out.world_pos = world_pos.xyz;
-    out.uv = vert.position.yz; //TODO0: use real UV from mesh
+    out.world_norm = world_norm.xyz;
+    out.uv = vert.uv;
+
     return out;
 };
 
 @fragment
 fn fragment_main(in: VertexOutput) -> @location(0) float4 {
-    let dx = dpdx(in.world_pos);
-    let dy = dpdy(in.world_pos);
-    let n = normalize(cross(dx, dy));
+    let n = normalize(in.world_norm);
+    let ldir = normalize(float3(1,1,1));
+    let light = saturate(dot(n,ldir));
     let baseColor = textureSample(baseTexture, linearSampler, in.uv);
-    return float4((n + 1.0) * 0.2 + baseColor.xyz * 0.8, 1.0);
+    return float4(0.2 + light * baseColor.xyz, 1.0);
 }
