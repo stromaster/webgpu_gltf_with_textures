@@ -10,7 +10,16 @@
     "noUnusedLocals": true,
     "pretty": true,
     "skipLibCheck": true,
-    "sourceMap": true,
     "strictNullChecks": true,
+    "sourceMap": true,
+    "module": "esNext",
+    "target": "es6",
+    "moduleResolution": "node",
+    "allowSyntheticDefaultImports": true,
   },
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "src/**/*.d.ts"
+  ],
 }

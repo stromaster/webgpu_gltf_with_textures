@@ -47,7 +47,7 @@ import {uploadGLB} from "./glb.ts";
 
     var depthFormat = "depth24plus-stencil8";
     var depthTexture = device.createTexture({
-        size: {width: canvas.width, height: canvas.height, depth: 1},
+        size: {width: canvas.width, height: canvas.height, depthOrArrayLayers: 1},
         format: depthFormat,
         usage: GPUTextureUsage.RENDER_ATTACHMENT
     });
@@ -70,7 +70,7 @@ import {uploadGLB} from "./glb.ts";
     var scene = await fetch(twoCylinder)
         .then(res => res.arrayBuffer()).then(buf => uploadGLB(buf, device));
 
-    scene.buildRenderPipeline(device,
+    await scene.buildRenderPipeline(device,
         shaderModule,
         swapChainFormat,
         depthFormat,
