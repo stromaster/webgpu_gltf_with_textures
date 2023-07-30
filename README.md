@@ -1,7 +1,6 @@
-# From 0 to glTF with WebGPU: Drawing the Full glTF Scene
+# GLTF scene loading with WebGPU
 
-This is the code for post 4 in the 0 to glTF series, which loads and renders
-the full default scene of a glTF binary file.
+This project is based on [WebGPU Webpack Starter](https://github.com/Twinklebear/webgpu-webpack-starter) and [From 0 to glTF with WebGPU Code](https://github.com/Twinklebear/webgpu-0-to-gltf) projects. It's mainly developed as a personal WebGPU playground and adds some extra functionality on top of the tutorials to load UVs, normals and textures from the glb files.
 
 ## Getting Started
 

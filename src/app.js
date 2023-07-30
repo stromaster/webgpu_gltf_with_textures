@@ -103,7 +103,7 @@ import {uploadGLB} from "./glb.ts";
     // Setup the camera
     // Pick a far view for the 2CylinderEngine that shows the whole scene
     var camera =
-        new ArcballCamera([0, 0, 10], [0, 0, 0], [0, 1, 0], 2.0, [canvas.width, canvas.height]);
+        new ArcballCamera([0, 0, 2], [0, 0, 0], [0, 1, 0], 2.0, [canvas.width, canvas.height]);
     var proj = mat4.perspective(
         mat4.create(), 50 * Math.PI / 180.0, canvas.width / canvas.height, 0.01, 1000);
     var projView = mat4.create();
