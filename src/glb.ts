@@ -947,6 +947,9 @@ export async function uploadGLB(buffer: ArrayBuffer, device: GPUDevice) {
                 let materialIndex = prim["material"];
                 meshPrimitives.push(new GLTFPrimitive(positions, normals, UVs, indices, topology, materials[materialIndex]));
             }
+            else {
+                console.warn(`Primitive[${i}] has missing components in mesh ${mesh["name"]}`);
+            }
         }
 
         meshes.push(new GLTFMesh(mesh["name"], meshPrimitives));

@@ -4,8 +4,7 @@ import { ArcballCamera } from "arcball_camera";
 import { Controller } from "ez_canvas_controller";
 
 import shaderCode from "./glb_prim.wgsl";
-import glbModel from "./DamagedHelmet.glb";
-//import glbModel from "./Avocado.glb";
+import glbModel from "./DamagedHelmet/DamagedHelmet.glb";
 
 import { uploadGLB } from "./glb.ts";
 
