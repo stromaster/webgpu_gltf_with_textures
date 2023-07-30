@@ -1,12 +1,13 @@
 // We use webpack to package our shaders as string resources that we can import
-import {mat4} from "gl-matrix";
-import {ArcballCamera} from "arcball_camera";
-import {Controller} from "ez_canvas_controller";
+import { mat4 } from "gl-matrix";
+import { ArcballCamera } from "arcball_camera";
+import { Controller } from "ez_canvas_controller";
 
 import shaderCode from "./glb_prim.wgsl";
-import glbModel from "./Avocado.glb";
+import glbModel from "./DamagedHelmet.glb";
+//import glbModel from "./Avocado.glb";
 
-import {uploadGLB} from "./glb.ts";
+import { uploadGLB } from "./glb.ts";
 
 (async () => {
     if (navigator.gpu === undefined) {
@@ -24,7 +25,7 @@ import {uploadGLB} from "./glb.ts";
     var context = canvas.getContext("webgpu");
 
     // Setup shader modules
-    var shaderModule = device.createShaderModule({code: shaderCode});
+    var shaderModule = device.createShaderModule({ code: shaderCode });
     var compilationInfo = await shaderModule.getCompilationInfo();
     if (compilationInfo.messages.length > 0) {
         var hadError = false;
@@ -43,27 +44,27 @@ import {uploadGLB} from "./glb.ts";
     // Setup render outputs
     var swapChainFormat = "bgra8unorm";
     context.configure(
-        {device: device, format: swapChainFormat, usage: GPUTextureUsage.RENDER_ATTACHMENT});
+        { device: device, format: swapChainFormat, usage: GPUTextureUsage.RENDER_ATTACHMENT });
 
     var depthFormat = "depth24plus-stencil8";
     var depthTexture = device.createTexture({
-        size: {width: canvas.width, height: canvas.height, depthOrArrayLayers: 1},
+        size: { width: canvas.width, height: canvas.height, depthOrArrayLayers: 1 },
         format: depthFormat,
         usage: GPUTextureUsage.RENDER_ATTACHMENT
     });
 
     // Create bind group layout
     var bindGroupLayout = device.createBindGroupLayout({
-        entries: [{binding: 0, visibility: GPUShaderStage.VERTEX, buffer: {type: "uniform"}}]
+        entries: [{ binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: "uniform" } }]
     });
 
     // Create a buffer to store the view parameters
     var viewParamsBuffer = device.createBuffer(
-        {size: 16 * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST});
+        { size: 16 * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 
     var viewParamBG = device.createBindGroup({
         layout: bindGroupLayout,
-        entries: [{binding: 0, resource: {buffer: viewParamsBuffer}}]
+        entries: [{ binding: 0, resource: { buffer: viewParamsBuffer } }]
     });
 
     // Load the packaged GLB file
@@ -103,7 +104,7 @@ import {uploadGLB} from "./glb.ts";
     // Setup the camera
     // Pick a far view for the 2CylinderEngine that shows the whole scene
     var camera =
-        new ArcballCamera([0, 0, 2], [0, 0, 0], [0, 1, 0], 2.0, [canvas.width, canvas.height]);
+        new ArcballCamera([0, 0, 3], [0, 0, 0], [0, 1, 0], 2.0, [canvas.width, canvas.height]);
     var proj = mat4.perspective(
         mat4.create(), 50 * Math.PI / 180.0, canvas.width / canvas.height, 0.01, 1000);
     var projView = mat4.create();
@@ -161,7 +162,7 @@ import {uploadGLB} from "./glb.ts";
         projView = mat4.mul(projView, proj, camera.camera);
 
         var upload = device.createBuffer(
-            {size: 16 * 4, usage: GPUBufferUsage.COPY_SRC, mappedAtCreation: true});
+            { size: 16 * 4, usage: GPUBufferUsage.COPY_SRC, mappedAtCreation: true });
         {
             var map = new Float32Array(upload.getMappedRange());
             map.set(projView);
