@@ -46,6 +46,7 @@ fn vertex_main(vert: VertexInput) -> VertexOutput {
 @group(2) @binding(0) var linearSampler: sampler;
 @group(2) @binding(1) var baseTexture: texture_2d<f32>;
 @group(2) @binding(2) var occlusionTexture: texture_2d<f32>;
+@group(2) @binding(3) var emissiveTexture: texture_2d<f32>;
 
 @fragment
 fn fragment_main(in: VertexOutput) -> @location(0) float4 {
@@ -56,9 +57,10 @@ fn fragment_main(in: VertexOutput) -> @location(0) float4 {
     let groundAmbient = float3(0.1,0.15,0.12);
     let baseColor = textureSample(baseTexture, linearSampler, in.uv);
     let occlusion = textureSample(occlusionTexture, linearSampler, in.uv);
+    let emissive = textureSample(emissiveTexture, linearSampler, in.uv).xyz;
 
     let ambient = mix(groundAmbient, skyAmbient, n.y * 0.5 + 0.5) * occlusion.x;
     let diffuse = float3(2.5,2.2,2.1) * baseColor.xyz * saturate(dot(n,ldir));
 
-    return float4(ambient + diffuse, baseColor.w);
+    return float4(ambient + diffuse + emissive, baseColor.w);
 }

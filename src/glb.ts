@@ -267,6 +267,10 @@ export class GLTFImage {
         const blob = new Blob([subBuffer], { type: this.mimeType });
         const imageBitmap = await createImageBitmap(blob);
 
+        this.createGpuData(device, imageBitmap)
+    }
+
+    createGpuData(device: GPUDevice, imageBitmap: any) {
         this.gpuTexture = device.createTexture({
             size: [imageBitmap.width, imageBitmap.height, 1],
             format: 'rgba8unorm',
@@ -295,8 +299,11 @@ export class GLTFMaterial {
     name: string
     baseColorTexture: GLTFTexture;
     occlusionTexture: GLTFTexture;
+    emissiveTexture: GLTFTexture;
 
-    constructor(jsonParams: any, textures: GLTFTexture[], defaultWhiteTexture: GLTFTexture) {
+    constructor(jsonParams: any, textures: GLTFTexture[],
+        defaultWhiteTexture: GLTFTexture,
+        defaultBlackTexture: GLTFTexture) {
         this.name = jsonParams["name"]
         let baseColorTextureIndex = 0
         if (jsonParams["pbrMetallicRoughness"] != undefined) {
@@ -313,6 +320,14 @@ export class GLTFMaterial {
         }
         else {
             this.occlusionTexture = defaultWhiteTexture;
+        }
+        if (jsonParams["emissiveTexture"] != undefined
+            && jsonParams["emissiveTexture"]["index"] != undefined) {
+            let emissiveTextureIndex = jsonParams["emissiveTexture"]["index"];
+            this.emissiveTexture = textures[emissiveTextureIndex];
+        }
+        else {
+            this.emissiveTexture = defaultBlackTexture;
         }
     }
 }
@@ -449,6 +464,11 @@ export class GLTFPrimitive {
                 visibility: GPUShaderStage.FRAGMENT,
                 texture: { sampleType: "float", multisampled: false }
             },
+            {
+                binding: 3,
+                visibility: GPUShaderStage.FRAGMENT,
+                texture: { sampleType: "float", multisampled: false }
+            },
         ];
         let primParamsBGLayout = device.createBindGroupLayout({
             entries: BGLentries
@@ -463,6 +483,7 @@ export class GLTFPrimitive {
 
         let baseColorTex: GPUTextureView = scene.getGpuTextureView(this.material.baseColorTexture);
         let occlusionTex: GPUTextureView = scene.getGpuTextureView(this.material.occlusionTexture);
+        let emissiveTex: GPUTextureView = scene.getGpuTextureView(this.material.emissiveTexture);
 
         this.primParamsBG = device.createBindGroup({
             layout: primParamsBGLayout,
@@ -470,6 +491,7 @@ export class GLTFPrimitive {
                 { binding: 0, resource: linearSampler },
                 { binding: 1, resource: baseColorTex },
                 { binding: 2, resource: occlusionTex },
+                { binding: 3, resource: emissiveTex },
             ]
         });
 
@@ -804,25 +826,22 @@ export async function uploadGLB(buffer: ArrayBuffer, device: GPUDevice) {
         {
             const response = await fetch(new URL('white.png', import.meta.url).toString());
             const imageBitmap = await createImageBitmap(await response.blob());
-            whiteImage.gpuTexture = device.createTexture({
-                size: [imageBitmap.width, imageBitmap.height, 1],
-                format: 'rgba8unorm',
-                usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT,
-            });
-            device.queue.copyExternalImageToTexture(
-                { source: imageBitmap },
-                { texture: whiteImage.gpuTexture },
-                [imageBitmap.width, imageBitmap.height]
-            );
-            whiteImage.gpuTextureView = whiteImage.gpuTexture.createView();
+            whiteImage.createGpuData(device, imageBitmap)
         }
-
-        let whiteImageIndex = images.length; //last element will be the white image
         images.push(whiteImage);
-        let defaultWhiteTexture: GLTFTexture = new GLTFTexture(whiteImageIndex)
+        let defaultWhiteTexture: GLTFTexture = new GLTFTexture(images.length - 1);
+
+        let blackImage: GLTFImage = new GLTFImage({ "name": "default_black", "bufferView": -1, "mimeType": "" })
+        {
+            const response = await fetch(new URL('black.png', import.meta.url).toString());
+            const imageBitmap = await createImageBitmap(await response.blob());
+            blackImage.createGpuData(device, imageBitmap)
+        }
+        images.push(blackImage);
+        let defaultBlackTexture: GLTFTexture = new GLTFTexture(images.length - 1);
 
         for (let i = 0; i < jsonMaterials.length; ++i) {
-            materials.push(new GLTFMaterial(jsonMaterials[i], textures, defaultWhiteTexture));
+            materials.push(new GLTFMaterial(jsonMaterials[i], textures, defaultWhiteTexture, defaultBlackTexture));
         }
     }
 
