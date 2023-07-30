@@ -43,24 +43,45 @@ fn vertex_main(vert: VertexInput) -> VertexOutput {
     return out;
 };
 
+struct MaterialParams {
+    baseColorFactor: float4,
+};
+
 @group(2) @binding(0) var linearSampler: sampler;
 @group(2) @binding(1) var baseTexture: texture_2d<f32>;
-@group(2) @binding(2) var occlusionTexture: texture_2d<f32>;
-@group(2) @binding(3) var emissiveTexture: texture_2d<f32>;
+@group(2) @binding(2) var normalTexture: texture_2d<f32>;
+@group(2) @binding(3) var occlusionTexture: texture_2d<f32>;
+@group(2) @binding(4) var emissiveTexture: texture_2d<f32>;
+@group(2) @binding(5) var metallicRoughnessTexture: texture_2d<f32>;
+@group(2) @binding(6) var<uniform> materialParams: MaterialParams;
+
+const MANUAL_GAMMA_CORRECT = true; //TODO: use srgb samplers and targets
 
 @fragment
 fn fragment_main(in: VertexOutput) -> @location(0) float4 {
-    let n = normalize(in.world_norm);
-    let ldir = normalize(float3(1,1,1));
+    let skyAmbient = float3(0.05,0.08,0.1);
+    let groundAmbient = float3(0.05,0.05,0.05);
+    let lightDir = normalize(float3(1,1,1));
+    let lightColor = float3(2.5,2.2,2.1);
 
-    let skyAmbient = float3(0.1,0.2,0.3);
-    let groundAmbient = float3(0.1,0.15,0.12);
-    let baseColor = textureSample(baseTexture, linearSampler, in.uv);
-    let occlusion = textureSample(occlusionTexture, linearSampler, in.uv);
+    let worldNormal = normalize(in.world_norm);
+    let tangentNormal = textureSample(normalTexture, linearSampler, in.uv).xyz * 2 - 1;
+    let normal = worldNormal; //TODO: add tangents and bumpmapping
+    var occlusion = textureSample(occlusionTexture, linearSampler, in.uv).x;
     let emissive = textureSample(emissiveTexture, linearSampler, in.uv).xyz;
+    var baseColor = textureSample(baseTexture, linearSampler, in.uv);
+    if (MANUAL_GAMMA_CORRECT) {
+        baseColor = float4(pow(baseColor.xyz, float3(2.2,2.2,2.2)), baseColor.w);
+    }
+    baseColor = baseColor * materialParams.baseColorFactor;
 
-    let ambient = mix(groundAmbient, skyAmbient, n.y * 0.5 + 0.5) * occlusion.x;
-    let diffuse = float3(2.5,2.2,2.1) * baseColor.xyz * saturate(dot(n,ldir));
+    let ambient = mix(groundAmbient, skyAmbient, normal.y * 0.5 + 0.5);
+    let diffuse = lightColor * saturate(dot(normal,lightDir));
 
-    return float4(ambient + diffuse + emissive, baseColor.w);
+    var finalColor = baseColor.xyz * (ambient + diffuse) * occlusion + emissive;
+    if (MANUAL_GAMMA_CORRECT){
+        finalColor = pow(finalColor, float3(1.0/2.2,1.0/2.2,1.0/2.2));
+    }
+
+    return float4(finalColor, baseColor.w);
 }

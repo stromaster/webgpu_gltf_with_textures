@@ -1,4 +1,4 @@
-import { mat4 } from "gl-matrix";
+import { mat4, vec4 } from "gl-matrix";
 //import * as FileSaver from 'file-saver';
 
 
@@ -295,39 +295,75 @@ export class GLTFTexture {
     }
 }
 
+class MaterialParams {
+    baseColorFactor: vec4;
+    constructor() {
+        this.baseColorFactor = [1, 1, 1, 1];
+    }
+};
+
 export class GLTFMaterial {
     name: string
     baseColorTexture: GLTFTexture;
+    normalTexture: GLTFTexture;
     occlusionTexture: GLTFTexture;
     emissiveTexture: GLTFTexture;
+    metallicRoughnessTexture: GLTFTexture;
+    materialParams: MaterialParams;
+    materialParamsBuf: GPUBuffer;
 
     constructor(jsonParams: any, textures: GLTFTexture[],
+        defaultNormalTexture: GLTFTexture,
         defaultWhiteTexture: GLTFTexture,
         defaultBlackTexture: GLTFTexture) {
         this.name = jsonParams["name"]
-        let baseColorTextureIndex = 0
-        if (jsonParams["pbrMetallicRoughness"] != undefined) {
-            let textureParams = jsonParams["pbrMetallicRoughness"]["baseColorTexture"];
-            if (textureParams != undefined && textureParams["index"] != undefined)
-                baseColorTextureIndex = textureParams["index"]
-        }
-        this.baseColorTexture = textures[baseColorTextureIndex];
 
+        this.baseColorTexture = defaultWhiteTexture;
+        this.metallicRoughnessTexture = defaultBlackTexture;
+        this.normalTexture = defaultNormalTexture;
+        this.occlusionTexture = defaultWhiteTexture;
+        this.emissiveTexture = defaultBlackTexture;
+        this.materialParams = new MaterialParams()
+
+        let pbrMetallicRoughnessParams = jsonParams["pbrMetallicRoughness"];
+        if (pbrMetallicRoughnessParams != undefined) {
+            let baseColorTextureParams = pbrMetallicRoughnessParams["baseColorTexture"];
+            if (baseColorTextureParams != undefined) {
+                if (baseColorTextureParams["index"] != undefined)
+                    this.baseColorTexture = textures[baseColorTextureParams["index"]];
+                else
+                    console.warn(`Cannot read baseColorTexture index for material ${this.name}`)
+            }
+
+            let baseColorFactorParams = pbrMetallicRoughnessParams["baseColorFactor"];
+            if (baseColorFactorParams != undefined) {
+                this.materialParams.baseColorFactor = baseColorFactorParams;
+            }
+
+            if (pbrMetallicRoughnessParams["metallicRoughnessTexture"] != undefined
+                && pbrMetallicRoughnessParams["metallicRoughnessTexture"]["index"] != undefined) {
+                let metallicRoughnessTextureIndex = pbrMetallicRoughnessParams["metallicRoughnessTexture"]["index"];
+                this.metallicRoughnessTexture = textures[metallicRoughnessTextureIndex];
+            }
+        }
+        else {
+            console.warn(`Unsupported material type ${this.name}`)
+        }
+
+        if (jsonParams["normalTexture"] != undefined
+            && jsonParams["normalTexture"]["index"] != undefined) {
+            let normalTextureIndex = jsonParams["normalTexture"]["index"];
+            this.normalTexture = textures[normalTextureIndex];
+        }
         if (jsonParams["occlusionTexture"] != undefined
             && jsonParams["occlusionTexture"]["index"] != undefined) {
             let occlusionTextureIndex = jsonParams["occlusionTexture"]["index"];
             this.occlusionTexture = textures[occlusionTextureIndex];
         }
-        else {
-            this.occlusionTexture = defaultWhiteTexture;
-        }
         if (jsonParams["emissiveTexture"] != undefined
             && jsonParams["emissiveTexture"]["index"] != undefined) {
             let emissiveTextureIndex = jsonParams["emissiveTexture"]["index"];
             this.emissiveTexture = textures[emissiveTextureIndex];
-        }
-        else {
-            this.emissiveTexture = defaultBlackTexture;
         }
     }
 }
@@ -449,26 +485,20 @@ export class GLTFPrimitive {
 
         let BGLentries: GPUBindGroupLayoutEntry[] = [
             //GPUShaderStage.FRAGMENT
-            {
-                binding: 0,
-                visibility: GPUShaderStage.FRAGMENT,
-                sampler: { type: "filtering" },
-            },
-            {
-                binding: 1,
-                visibility: GPUShaderStage.FRAGMENT,
-                texture: { sampleType: "float", multisampled: false }
-            },
-            {
-                binding: 2,
-                visibility: GPUShaderStage.FRAGMENT,
-                texture: { sampleType: "float", multisampled: false }
-            },
-            {
-                binding: 3,
-                visibility: GPUShaderStage.FRAGMENT,
-                texture: { sampleType: "float", multisampled: false }
-            },
+            // linearSampler
+            { binding: 0, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
+            // baseTexture
+            { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float", multisampled: false } },
+            // normalTexture
+            { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float", multisampled: false } },
+            // occlusionTexture
+            { binding: 3, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float", multisampled: false } },
+            // emissiveTexture
+            { binding: 4, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float", multisampled: false } },
+            // metallicRoughnessTexture
+            { binding: 5, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float", multisampled: false } },
+            // materialParams
+            { binding: 6, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
         ];
         let primParamsBGLayout = device.createBindGroupLayout({
             entries: BGLentries
@@ -482,16 +512,30 @@ export class GLTFPrimitive {
         });
 
         let baseColorTex: GPUTextureView = scene.getGpuTextureView(this.material.baseColorTexture);
+        let normalTex: GPUTextureView = scene.getGpuTextureView(this.material.normalTexture);
         let occlusionTex: GPUTextureView = scene.getGpuTextureView(this.material.occlusionTexture);
         let emissiveTex: GPUTextureView = scene.getGpuTextureView(this.material.emissiveTexture);
+        let metallicRoughnessTex: GPUTextureView = scene.getGpuTextureView(this.material.metallicRoughnessTexture);
+
+        // Upload the node transform
+        this.material.materialParamsBuf = device.createBuffer({
+            size: 4 * 4,
+            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+            mappedAtCreation: true
+        });
+        new Float32Array(this.material.materialParamsBuf.getMappedRange()).set(this.material.materialParams.baseColorFactor)
+        this.material.materialParamsBuf.unmap();
 
         this.primParamsBG = device.createBindGroup({
             layout: primParamsBGLayout,
             entries: [
                 { binding: 0, resource: linearSampler },
                 { binding: 1, resource: baseColorTex },
-                { binding: 2, resource: occlusionTex },
-                { binding: 3, resource: emissiveTex },
+                { binding: 2, resource: normalTex },
+                { binding: 3, resource: occlusionTex },
+                { binding: 4, resource: emissiveTex },
+                { binding: 5, resource: metallicRoughnessTex },
+                { binding: 6, resource: { buffer: this.material.materialParamsBuf } },
             ]
         });
 
@@ -822,6 +866,15 @@ export async function uploadGLB(buffer: ArrayBuffer, device: GPUDevice) {
 
         console.log(`glTF file has ${jsonMaterials.length} materials`);
 
+        let normalImage: GLTFImage = new GLTFImage({ "name": "default_white", "bufferView": -1, "mimeType": "" })
+        {
+            const response = await fetch(new URL('normal.png', import.meta.url).toString());
+            const imageBitmap = await createImageBitmap(await response.blob());
+            normalImage.createGpuData(device, imageBitmap)
+        }
+        images.push(normalImage);
+        let defaultNormalTexture: GLTFTexture = new GLTFTexture(images.length - 1);
+
         let whiteImage: GLTFImage = new GLTFImage({ "name": "default_white", "bufferView": -1, "mimeType": "" })
         {
             const response = await fetch(new URL('white.png', import.meta.url).toString());
@@ -841,7 +894,8 @@ export async function uploadGLB(buffer: ArrayBuffer, device: GPUDevice) {
         let defaultBlackTexture: GLTFTexture = new GLTFTexture(images.length - 1);
 
         for (let i = 0; i < jsonMaterials.length; ++i) {
-            materials.push(new GLTFMaterial(jsonMaterials[i], textures, defaultWhiteTexture, defaultBlackTexture));
+            materials.push(new GLTFMaterial(jsonMaterials[i], textures,
+                defaultNormalTexture, defaultWhiteTexture, defaultBlackTexture));
         }
     }
 
