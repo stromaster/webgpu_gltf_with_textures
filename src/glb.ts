@@ -1,4 +1,6 @@
 import {mat4} from "gl-matrix";
+//import * as FileSaver from 'file-saver';
+
 
 enum GLTFRenderMode {
     POINTS = 0,
@@ -239,23 +241,27 @@ export class GLTFAccessor {
     }
 }
 
-export class GLTFTexture {
+export class GLTFImage {
     name: string;
+    bufferViewIndex: number;
+    mimeType: string;
     gpuTexture?: GPUTexture;
+    gpuTextureView?: GPUTextureView
 
-    constructor(name: string) {
-        this.name = name
+    constructor(jsonParams: any) {
+        this.name = jsonParams["name"];
+        this.bufferViewIndex = jsonParams["bufferView"];
+        this.mimeType = jsonParams["mimeType"];
     }
 
-    async load(device: GPUDevice) {
+    async load(device: GPUDevice, bufferViews: GLTFBufferView[]) {
         // Fetch the image and upload it into a GPUTexture.
-        console.log(`this.name = ${this.name}`);
-        const response = await fetch(
-            //TODO0: get this working with assets and glb blobs
-            //new URL(this.name, import.meta.url).toString()
-            new URL('texture.png', import.meta.url).toString()
-        );
-        const imageBitmap = await createImageBitmap(await response.blob());
+        console.log(`GLTFImage [name = ${this.name}, bufferViewIndex = ${this.bufferViewIndex}, mimeType = ${this.mimeType}]`);
+        let bufferView: GLTFBufferView = bufferViews[this.bufferViewIndex];
+        let subBuffer:Uint8Array = new Uint8Array(bufferView.view.buffer, bufferView.view.byteOffset, bufferView.view.byteLength);
+        const blob = new Blob([subBuffer], { type: this.mimeType });
+        const imageBitmap = await createImageBitmap(blob);
+        console.log(`GLTFImage [name = ${this.name}] done`);
 
         this.gpuTexture = device.createTexture({
             size: [imageBitmap.width, imageBitmap.height, 1],
@@ -270,18 +276,32 @@ export class GLTFTexture {
             { texture: this.gpuTexture },
             [imageBitmap.width, imageBitmap.height]
         );
+        this.gpuTextureView = this.gpuTexture.createView();
+        console.log(`done`);
+    }
+}
+export class GLTFTexture {
+    imageSource: number;
+
+    constructor(imageSource: number) {
+        this.imageSource = imageSource
     }
 }
 
 export class GLTFMaterial {
+    name: string
     baseColorTexture: GLTFTexture;
 
-    constructor(name: string) {
-        this.baseColorTexture = new GLTFTexture(name);
-    }
-
-    async load(device: GPUDevice) {
-        await this.baseColorTexture.load(device);
+    constructor(jsonParams: any, textures: GLTFTexture[]) {
+        this.name = jsonParams["name"]
+        let baseColorTextureIndex = 0
+        if(jsonParams["pbrMetallicRoughness"] != undefined)
+        {
+            let textureParams = jsonParams["pbrMetallicRoughness"]["baseColorTexture"];
+            if(textureParams != undefined && textureParams["index"] != undefined)
+                baseColorTextureIndex = textureParams["index"]
+        }
+        this.baseColorTexture = textures[baseColorTextureIndex];
     }
 }
 
@@ -292,20 +312,23 @@ export class GLTFPrimitive {
     indices: GLTFAccessor;
     topology: GLTFRenderMode;
     renderPipeline: GPURenderPipeline|null;
-    material: GLTFMaterial|null;
+    primParamsBG: GPUBindGroup|null
+    material: GLTFMaterial;
 
     constructor(positions: GLTFAccessor,
                 normals: GLTFAccessor,
                 UVs: GLTFAccessor,
                 indices: GLTFAccessor,
-                topology: GLTFRenderMode) {
+                topology: GLTFRenderMode,
+                material: GLTFMaterial) {
         this.positions = positions;
         this.normals = normals;
         this.UVs = UVs;
         this.indices = indices;
         this.topology = topology;
         this.renderPipeline = null;
-        this.material = new GLTFMaterial('texture.png')
+        this.primParamsBG = null;
+        this.material = material;
 
         this.positions.view.needsUpload = true;
         this.positions.view.addUsage(GPUBufferUsage.VERTEX);
@@ -321,16 +344,17 @@ export class GLTFPrimitive {
     }
 
     buildRenderPipelinePrim(device: GPUDevice,
+                        scene: GLTFScene,
                         shaderModule: GPUShaderModule,
                         colorFormat: GPUTextureFormat,
                         depthFormat: GPUTextureFormat,
                         uniformsBGLayout: GPUBindGroupLayout,
                         nodeParamsBGLayout: GPUBindGroupLayout) {
 
-        // TODO0: enable
-        //if (this.material) {
-        //    await this.material.load(device);
-        //}
+        if (this.material == null)
+            throw Error(`No material on mesh`);
+        if (this.material.baseColorTexture == null)
+            throw Error(`Cannot load texture`);
 
         // Note: We do not pass the positions.byteOffset here, as its
         // meaning can vary in different glB files, i.e., if it's being used
@@ -399,7 +423,47 @@ export class GLTFPrimitive {
             throw Error(`Unsupported glTF topology ${this.topology}`);
         }
 
-        let layout = device.createPipelineLayout({bindGroupLayouts: [uniformsBGLayout, nodeParamsBGLayout]});
+        let BGLentries : GPUBindGroupLayoutEntry[] = [
+            //GPUShaderStage.FRAGMENT
+            {
+                binding: 0,
+                visibility: GPUShaderStage.FRAGMENT,
+                texture: {sampleType: "float", multisampled: false}
+            },
+            {
+                binding: 1,
+                visibility: GPUShaderStage.FRAGMENT,
+                sampler: {type: "filtering"},
+            },
+        ];
+        let primParamsBGLayout = device.createBindGroupLayout({
+            entries: BGLentries
+        });
+
+        const linearSampler : GPUSampler = device.createSampler({
+            magFilter: 'linear',
+            minFilter: 'linear',
+            addressModeU: 'repeat',
+            addressModeV: 'repeat',
+        });
+
+        let textureImage: GLTFImage = scene.images[this.material.baseColorTexture.imageSource]
+        if(textureImage.gpuTextureView == null)
+        {
+            console.warn("no image");
+            return;
+        }
+        let textureView : GPUTextureView = textureImage.gpuTextureView;
+
+        this.primParamsBG = device.createBindGroup({
+            layout: primParamsBGLayout,
+            entries: [
+                {binding: 0, resource: textureView},
+                {binding: 1, resource: linearSampler},
+            ]
+        });
+
+        let layout = device.createPipelineLayout({bindGroupLayouts: [uniformsBGLayout, nodeParamsBGLayout, primParamsBGLayout]});
 
         let renderPipelineDescriptor : GPURenderPipelineDescriptor = {
             layout: layout,
@@ -412,8 +476,11 @@ export class GLTFPrimitive {
     }
 
     render(renderPassEncoder: GPURenderPassEncoder) {
-        if (this.renderPipeline != null)
-            renderPassEncoder.setPipeline(this.renderPipeline);
+        if (this.renderPipeline == null)
+            return;
+
+        renderPassEncoder.setPipeline(this.renderPipeline);
+        renderPassEncoder.setBindGroup(2, this.primParamsBG);
 
         // Apply the accessor's byteOffset here to handle both global and interleaved
         // offsets for the buffer. Setting the offset here allows handling both cases,
@@ -454,6 +521,7 @@ export class GLTFMesh {
     }
 
     buildRenderPipelineMesh(device : GPUDevice,
+        scene: GLTFScene,
         shaderModule : GPUShaderModule,
         colorFormat : GPUTextureFormat,
         depthFormat : GPUTextureFormat,
@@ -463,6 +531,7 @@ export class GLTFMesh {
         // build their respective render pipelines
         for (let i = 0; i < this.primitives.length; ++i) {
             this.primitives[i].buildRenderPipelinePrim(device,
+                scene,
                 shaderModule,
                 colorFormat,
                 depthFormat,
@@ -492,11 +561,12 @@ export class GLTFNode {
         this.mesh = mesh;
     }
 
-    async buildRenderPipelineNode(device : GPUDevice,
-                        shaderModule : GPUShaderModule,
-                        colorFormat : GPUTextureFormat,
-                        depthFormat : GPUTextureFormat,
-                        uniformsBGLayout : GPUBindGroupLayout) {
+    buildRenderPipelineNode(device : GPUDevice,
+                                    scene: GLTFScene,
+                                    shaderModule : GPUShaderModule,
+                                    colorFormat : GPUTextureFormat,
+                                    depthFormat : GPUTextureFormat,
+                                    uniformsBGLayout : GPUBindGroupLayout) {
 
         // Upload the node transform
         this.nodeParamsBuf = device.createBuffer({
@@ -507,62 +577,18 @@ export class GLTFNode {
         new Float32Array(this.nodeParamsBuf.getMappedRange()).set(this.transform)
         this.nodeParamsBuf.unmap();
 
-        const linearSampler : GPUSampler = device.createSampler({
-            magFilter: 'linear',
-            minFilter: 'linear',
-            addressModeU: 'repeat',
-            addressModeV: 'repeat',
-        });
-
-        // TODO0: get texture from the mesh, don't re-create
-        // let textureView : GPUTextureView|null = null;
-        // if (this.mesh != null
-        //     && this.mesh.primitives.length > 0
-        //     && this.mesh.primitives[0].material != null
-        //     && this.mesh.primitives[0].material.baseColorTexture.gpuTexture != null)
-        // {
-        //     textureView = this.mesh.primitives[0].material.baseColorTexture.gpuTexture.createView();
-        // }
-        let baseColorTexture = new GLTFTexture('texture.png');
-        await baseColorTexture.load(device);
-        if (baseColorTexture.gpuTexture == null)
-            throw Error('texture load error!');
-        let textureView : GPUTextureView = baseColorTexture.gpuTexture.createView();
-
-        let BGLentries : GPUBindGroupLayoutEntry[] = [
-            //GPUShaderStage.VERTEX
-            {
-                binding: 0,
-                visibility: GPUShaderStage.VERTEX,
-                buffer: {type: "uniform"}
-            },
-
-            //GPUShaderStage.FRAGMENT
-            {
-                binding: 1,
-                visibility: GPUShaderStage.FRAGMENT,
-                texture: {sampleType: "float", multisampled: false}
-            },
-            {
-                binding: 2,
-                visibility: GPUShaderStage.FRAGMENT,
-                sampler: {type: "filtering"},
-            },
-        ];
+        let BGLentries : GPUBindGroupLayoutEntry[] = [{binding: 0, visibility: GPUShaderStage.VERTEX, buffer: {type: "uniform"}}];
         let bindGroupLayout = device.createBindGroupLayout({
             entries: BGLentries
         });
 
         this.nodeParamsBG = device.createBindGroup({
             layout: bindGroupLayout,
-            entries: [
-                {binding: 0, resource: {buffer: this.nodeParamsBuf}},
-                {binding: 1, resource: textureView},
-                {binding: 2, resource: linearSampler},
-            ]
+            entries: [ {binding: 0, resource: {buffer: this.nodeParamsBuf}} ]
         });
 
         this.mesh.buildRenderPipelineMesh(device,
+            scene,
             shaderModule,
             colorFormat,
             depthFormat,
@@ -578,14 +604,21 @@ export class GLTFNode {
 
 export class GLTFScene {
     nodes: GLTFNode[];
-    constructor(nodes: GLTFNode[]) {
+    images: GLTFImage[];
+    textures: GLTFTexture[];
+    materials: GLTFMaterial[];
+
+    constructor(nodes: GLTFNode[], images: GLTFImage[], textures: GLTFTexture[], materials: GLTFMaterial[]) {
         this.nodes = nodes;
+        this.images = images;
+        this.textures = textures;
+        this.materials = materials;
     }
 
-    async buildRenderPipeline(device : GPUDevice, shaderModule : GPUShaderModule,
+    buildRenderPipeline(device : GPUDevice, shaderModule : GPUShaderModule,
         colorFormat : GPUTextureFormat, depthFormat : GPUTextureFormat, uniformsBGLayout : GPUBindGroupLayout) {
         for (let i = 0; i < this.nodes.length; ++i) {
-            await this.nodes[i].buildRenderPipelineNode(device, shaderModule, colorFormat, depthFormat, uniformsBGLayout);
+            this.nodes[i].buildRenderPipelineNode(device, this, shaderModule, colorFormat, depthFormat, uniformsBGLayout);
         }
     }
 
@@ -661,7 +694,7 @@ function readNodeTransform(node : any) {
 }
 
 // Upload a GLB model and return it
-export function uploadGLB(buffer: ArrayBuffer, device: GPUDevice) {
+export async function uploadGLB(buffer: ArrayBuffer, device: GPUDevice) {
     let loadingText : any = document.getElementById("loading-text")
     loadingText.hidden = false;
     // glB has a JSON chunk and a binary chunk, potentially followed by
@@ -703,7 +736,7 @@ export function uploadGLB(buffer: ArrayBuffer, device: GPUDevice) {
     let binaryChunk = new GLTFBuffer(buffer, 28 + header[3], binaryHeader[0]);
 
     // Create GLTFBufferView objects for all the buffer views in the glTF file
-    let bufferViews = [];
+    let bufferViews: GLTFBufferView[] = [];
     for (let i = 0; i < jsonChunk.bufferViews.length; ++i) {
         bufferViews.push(new GLTFBufferView(binaryChunk, jsonChunk.bufferViews[i]));
     }
@@ -717,6 +750,43 @@ export function uploadGLB(buffer: ArrayBuffer, device: GPUDevice) {
         let accessorInfo = jsonChunk.accessors[i];
         let viewID = accessorInfo["bufferView"];
         accessors.push(new GLTFAccessor(bufferViews[viewID], accessorInfo));
+    }
+
+    // Load Images
+    let images: GLTFImage[] = [];
+    let jsonImages = jsonChunk["images"]
+    if(jsonImages != undefined)
+    {
+        console.log(`glTF file has ${jsonImages.length} images`);
+        let promises = []
+        for (let i = 0; i < jsonImages.length; ++i) {
+            let newImage = new GLTFImage(jsonImages[i])
+            promises.push( newImage.load(device, bufferViews) );
+            images.push(newImage);
+        }
+        await Promise.all(promises);
+    }
+
+    // Load Textures
+    let textures: GLTFTexture[] = [];
+    let jsonTextures = jsonChunk["textures"]
+    if(jsonTextures != undefined)
+    {
+        console.log(`glTF file has ${jsonTextures.length} textures`);
+        for (let i = 0; i < jsonTextures.length; ++i){
+            textures.push(new GLTFTexture(jsonTextures[i]["source"]));
+        }
+    }
+
+    // Load Materials
+    let materials: GLTFMaterial[] = [];
+    let jsonMaterials = jsonChunk["materials"]
+    if(jsonMaterials != undefined)
+    {
+        console.log(`glTF file has ${jsonMaterials.length} materials`);
+        for (let i = 0; i < jsonMaterials.length; ++i){
+            materials.push(new GLTFMaterial(jsonMaterials[i], textures));
+        }
     }
 
     // Load all the meshes
@@ -734,7 +804,8 @@ export function uploadGLB(buffer: ArrayBuffer, device: GPUDevice) {
             }
             if (topology != GLTFRenderMode.TRIANGLES &&
                 topology != GLTFRenderMode.TRIANGLE_STRIP) {
-                throw Error(`Unsupported primitive mode ${prim["mode"]}`);
+                console.warn(`Unsupported primitive mode ${prim["mode"]}`);
+                continue;
             }
 
             let indices : GLTFAccessor|null = null;
@@ -763,11 +834,13 @@ export function uploadGLB(buffer: ArrayBuffer, device: GPUDevice) {
 
             // Add the primitive to the mesh's list of primitives
             if (positions != null && normals != null && UVs != null && indices != null)
-                meshPrimitives.push(new GLTFPrimitive(positions, normals, UVs, indices, topology));
+            {
+                let materialIndex = prim["material"];
+                meshPrimitives.push(new GLTFPrimitive(positions, normals, UVs, indices, topology, materials[materialIndex]));
+            }
         }
 
-        if (meshPrimitives.length > 0)
-            meshes.push(new GLTFMesh(mesh["name"], meshPrimitives));
+        meshes.push(new GLTFMesh(mesh["name"], meshPrimitives));
     }
 
     // Upload the buffer views used by mesh
@@ -783,7 +856,7 @@ export function uploadGLB(buffer: ArrayBuffer, device: GPUDevice) {
     if (jsonChunk["scenes"]) {
         defaultSceneNodes = jsonChunk["scenes"][jsonChunk["scene"]]["nodes"];
     }
-    let defaultNodes = [];
+    let defaultNodes: GLTFNode[] = [];
     for (let i = 0; i < defaultSceneNodes.length; ++i) {
         // Get each node referenced by the scene and flatten it and its children
         // out to a single-level scene so that we don't need to keep track of nested
@@ -805,6 +878,6 @@ export function uploadGLB(buffer: ArrayBuffer, device: GPUDevice) {
 
     loadingText.hidden = true;
 
-    return new GLTFScene(defaultNodes);
+    return new GLTFScene(defaultNodes, images, textures, materials);
 }
 

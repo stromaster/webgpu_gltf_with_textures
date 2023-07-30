@@ -29,8 +29,8 @@ var<uniform> view_params: ViewParams;
 @group(1) @binding(0)
 var<uniform> node_params: NodeParams;
 
-@group(1) @binding(1) var baseTexture: texture_2d<f32>;
-@group(1) @binding(2) var linearSampler: sampler;
+@group(2) @binding(0) var baseTexture: texture_2d<f32>;
+@group(2) @binding(1) var linearSampler: sampler;
 
 @vertex
 fn vertex_main(vert: VertexInput) -> VertexOutput {
@@ -50,7 +50,13 @@ fn vertex_main(vert: VertexInput) -> VertexOutput {
 fn fragment_main(in: VertexOutput) -> @location(0) float4 {
     let n = normalize(in.world_norm);
     let ldir = normalize(float3(1,1,1));
-    let light = saturate(dot(n,ldir));
+
+    let skyAmbient = float3(0.1,0.2,0.3);
+    let groundAmbient = float3(0.1,0.15,0.12);
     let baseColor = textureSample(baseTexture, linearSampler, in.uv);
-    return float4(0.2 + light * baseColor.xyz, 1.0);
+
+    let ambient = mix(groundAmbient, skyAmbient, n.y * 0.5 + 0.5);
+    let diffuse = float3(2.5,2.2,2.1) * baseColor.xyz * saturate(dot(n,ldir));
+
+    return float4(ambient + diffuse, baseColor.w);
 }

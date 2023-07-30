@@ -4,7 +4,7 @@ import {ArcballCamera} from "arcball_camera";
 import {Controller} from "ez_canvas_controller";
 
 import shaderCode from "./glb_prim.wgsl";
-import twoCylinder from "./2CylinderEngine.glb";
+import glbModel from "./Avocado.glb";
 
 import {uploadGLB} from "./glb.ts";
 
@@ -66,11 +66,11 @@ import {uploadGLB} from "./glb.ts";
         entries: [{binding: 0, resource: {buffer: viewParamsBuffer}}]
     });
 
-    // Load the packaged GLB file, 2CylinderEngine.glb
-    var scene = await fetch(twoCylinder)
+    // Load the packaged GLB file
+    var scene = await fetch(glbModel)
         .then(res => res.arrayBuffer()).then(buf => uploadGLB(buf, device));
 
-    await scene.buildRenderPipeline(device,
+    scene.buildRenderPipeline(device,
         shaderModule,
         swapChainFormat,
         depthFormat,
@@ -86,8 +86,8 @@ import {uploadGLB} from "./glb.ts";
             reader.onerror = function () {
                 throw Error("Error reading GLB file");
             };
-            reader.onload = function () {
-                scene = uploadGLB(reader.result, device)
+            reader.onload = async function () {
+                scene = await uploadGLB(reader.result, device)
                 scene.buildRenderPipeline(device,
                     shaderModule,
                     swapChainFormat,
@@ -103,7 +103,7 @@ import {uploadGLB} from "./glb.ts";
     // Setup the camera
     // Pick a far view for the 2CylinderEngine that shows the whole scene
     var camera =
-        new ArcballCamera([0, 0, 700], [0, 0, 0], [0, 1, 0], 0.5, [canvas.width, canvas.height]);
+        new ArcballCamera([0, 0, 10], [0, 0, 0], [0, 1, 0], 2.0, [canvas.width, canvas.height]);
     var proj = mat4.perspective(
         mat4.create(), 50 * Math.PI / 180.0, canvas.width / canvas.height, 0.01, 1000);
     var projView = mat4.create();
